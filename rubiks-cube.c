@@ -1,11 +1,9 @@
 #include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <unistd.h>
 
 enum {
@@ -214,8 +212,8 @@ int main(int argc, char **argv) {
     }
     char table_name[50];
     sprintf(table_name, "depth-%d-%zu", depth_precalc, table_size);
-    int table_fd = open(table_name, O_RDWR, 0755);
-    if (table_fd < 0) {
+    FILE *table_fs = fopen(table_name, "r");
+    if (!table_fs) {
         printf("file %s does not exist, running precalc\n", table_name);
         memset(table, -1, table_size * sizeof(*table));
         for (int i = 0; i < 54; ++i) {
@@ -223,33 +221,23 @@ int main(int argc, char **argv) {
         }
         precalc(0, -1);
         printf("precalc finished, max segment length is %zu\n", table_max_segment());
-        table_fd = open(table_name, O_RDWR | O_CREAT, 0755);
-        if (table_fd < 0) {
+        table_fs = fopen(table_name, "w");
+        if (!table_fs) {
             perror("open");
             return 1;
         }
-        if (ftruncate(table_fd, table_size * sizeof(*table)) < 0) {
-            perror("ftruncate");
+        if (fwrite(table, sizeof(*table), table_size, table_fs) != table_size) {
+            perror("fwrite");
             return 1;
         }
-        void *table_buf = mmap(NULL, table_size * sizeof(*table), PROT_WRITE, MAP_SHARED, table_fd, 0);
-        if (table_buf == MAP_FAILED) {
-            perror("mmap");
-            return 1;
-        }
-        memcpy(table_buf, table, table_size * sizeof(*table));
-        munmap(table_buf, table_size * sizeof(*table));
-        close(table_fd);
+        fclose(table_fs);
     } else {
         printf("using file %s\n", table_name);
-        void *table_buf = mmap(NULL, table_size * sizeof(*table), PROT_WRITE, MAP_SHARED, table_fd, 0);
-        if (table_buf == MAP_FAILED) {
-            perror("mmap");
+        if (fread(table, sizeof(*table), table_size, table_fs) != table_size) {
+            perror("fread");
             return 1;
         }
-        memcpy(table, table_buf, table_size * sizeof(*table));
-        munmap(table_buf, table_size * sizeof(*table));
-        close(table_fd);
+        fclose(table_fs);
     }
     while (true) {
         printf("enter your start position:\n");
